@@ -1,4 +1,5 @@
 import paho.mqtt.client as mqtt
+import time
 
 
 # The callback for when the client receives a CONNACK response from the server.
@@ -21,7 +22,12 @@ def main():
 
     mqttc.connect("localhost", 1883, 60)
     print("Starting MQTT Client")
-    mqttc.loop_forever()
+    mqttc.loop_start()
+
+    while True:
+        print("Publishing Test Payload")
+        mqttc.publish("test/test", "hello world!")
+        time.sleep(3)
 
     print("Hello from scripts!")
 
