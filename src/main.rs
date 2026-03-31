@@ -334,11 +334,13 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
         }
     });
 
-    let mut buffer = [0; 1024];
+    // ISSUE HERE: BUFFER CAN CONTAIN MORE THAN ONE MESSAGE BUT WE ARE ONLY PROCESSING ONE
+    let mut buffer = [0; 1024]; // Dropping this size increases reliablity for small packets as we are just throwing away less.
     loop {
         match rx_socket.read(&mut buffer).await {
             Ok(n) if n > 0 => {
                 println!("Recieved {} bytes", n);
+                
                 let packet_type = PacketType::from_u8(buffer[0] >> 4);
                 if let Some(packet_type) = packet_type {
                     println!("Packet Type: {:?}", packet_type);
