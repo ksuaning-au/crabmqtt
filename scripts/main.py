@@ -4,7 +4,7 @@ import threading
 
 
 NUM_CLIENTS = 10
-PUBLISH_INTERVAL = 1
+PUBLISH_INTERVAL = 10
 
 
 def create_client(client_id: int):
@@ -15,6 +15,10 @@ def create_client(client_id: int):
     def on_connect(client, userdata, flags, reason_code, properties):
         print(f"Client {client_id}: Connected with result code {reason_code}")
 
+    def on_message(client, userdata, msg):
+        print(f"[client-{client_id}] {msg.topic}: {str(msg.payload)}")
+    
+    mqttc.on_message = on_message
     mqttc.on_connect = on_connect
     mqttc.connect("localhost", 1883, 60)
     mqttc.loop_start()
@@ -22,8 +26,9 @@ def create_client(client_id: int):
 
 
 def publish_loop(client_id: int, mqttc):
-    topic = f"test/client{client_id}"
+    topic = f"test/test"
     count = 0
+    mqttc.subscribe(topic)
     while True:
         payload = f"client-{client_id}-msg-{count}"
         mqttc.publish(topic, payload)
