@@ -25,26 +25,41 @@ pub enum PacketType {
 
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
-use std::io::{Read, Write};
-use std::net::{TcpListener, TcpStream};
+// use std::io::{Read, Write};
+// use std::net::{TcpListener, TcpStream};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Hello, world!");
 
-    let listener = TcpListener::bind("0.0.0.0:1883")?;
+    // let listener = TcpListener::bind("0.0.0.0:1883")?;
+    
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:1883").await?;
     println!("MQTT Sock Started");
 
-    for stream in listener.incoming() {
-        match stream {
-            Ok(mut stream) => {
-                println!("Client Connected: {:?}", stream.peer_addr()?);
-                handle_client(&mut stream);
-            }
-            Err(e) => {
-                eprintln!("Conn Failed! {}", e);
-            }
-        }
+    loop {
+        let (mut stream, addr) = listener.accept().await?;
+        println!("Client Connected: {}", addr);
+
+        tokio::spawn(async move {
+            handle_client(&mut stream).await;
+        });
     }
+    //
+    // for stream in listener.incoming() {
+    //     match stream {
+    //         Ok(mut stream) => {
+    //             println!("Client Connected: {:?}", stream.peer_addr()?);
+    //             handle_client(&mut stream);
+    //         }
+    //         Err(e) => {
+    //             eprintln!("Conn Failed! {}", e);
+    //         }
+    //     }
+    // }
+    println!("Program End.");
     Ok(())
 }
 
@@ -68,21 +83,39 @@ fn extract_remaining_length(buffer: &[u8]) -> Result<(u32, usize), &'static str>
     Err("My Error")
 }
 
-fn handle_connect(stream: &mut TcpStream){
+async fn handle_ping(stream: &mut tokio::net::TcpStream){
+    let pingresp = [0xD0, 0x00];
+    match stream.write_all(&pingresp).await{
+        Ok(()) => println!("Sent Ping Resp"),
+        Err(e) => eprintln!("Failed sending pingresp: {}", e),
+    };
+
+}
+
+async fn handle_connect(stream: &mut tokio::net::TcpStream){
     let connack = [0x20, 0x02, 0x00, 0x00]; 
     // Byte 0: packet type (2) and flags
     // Byte 1: Remaining Length  2 bytes (0x02)
     // Byte 2: Ack Flags (Not implemeted)
     // Byte 3: Return Code (0 for success)
-    match stream.write_all(&connack) {
+    match stream.write_all(&connack).await {
         Ok(()) => println!("Sent ConnAck"),
         Err(e) => eprintln!("Failed sending connack: {}", e),
     };
 
 }
 
+async fn handle_subscribe(stream: &mut tokio::net::TcpStream, num_topics: u8){
+    let suback = [0x90, (0x02 + num_topics), 0x00, 0x00, 0x00];
 
-fn handle_publish(buffer: &[u8]){
+    match stream.write_all(&suback).await {
+        Ok(()) => println!("Sent SubAck"),
+        Err(e) => eprintln!("Failed sending suback: {}", e),
+    }
+}
+
+
+async fn handle_publish(buffer: &[u8]){
     // The payload size is variable len to support large payloads so we need to
     // loop through it to find where data starts and payload size ends.
     let (payload_size, start_index) = match extract_remaining_length(&buffer){
@@ -114,28 +147,36 @@ fn handle_publish(buffer: &[u8]){
 
 }
 
-fn handle_client(stream: &mut TcpStream) {
+async fn handle_client(stream: &mut tokio::net::TcpStream) {
     println!("Handling Client");
 
     let mut buffer = [0; 1024];
     loop {
-        match stream.read(&mut buffer) {
+        match stream.read(&mut buffer).await {
             Ok(n) if n > 0 => {
                 println!("Recieved {} bytes", n);
                 let packet_type = PacketType::from_u8(buffer[0] >> 4);
                 if let Some(packet_type) = packet_type {
+                    println!("Packet Type: {:?}", packet_type);
                     match packet_type {
-                        PacketType::Connect => handle_connect(stream),
-                        PacketType::Publish => handle_publish(&buffer),
+                        PacketType::Connect => handle_connect(stream).await,
+                        PacketType::Publish => handle_publish(&buffer).await,
+                        PacketType::Subscribe => handle_subscribe(stream, 1).await,
+                        PacketType::PingReq => handle_ping(stream).await,
                         _ => println!("Unknown packet type"),
                     }
                 } else {
                     println!("Unexpected packet type!");
                 }
             }
-            Ok(n) if n == 0 => println!("Client disconected."),
-            Ok(_) => {}
-            Err(e) => eprintln!("Error Reading from sock: {}", e),
+            Ok(_) => {
+                println!("Client disconected.");
+                break;
+            },
+            Err(e) => {
+                eprintln!("Error Reading from sock: {}", e);
+                break;
+            },
         }
     }
 }
