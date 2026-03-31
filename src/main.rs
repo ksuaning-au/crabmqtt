@@ -28,7 +28,26 @@ use num_traits::FromPrimitive;
 // use std::io::{Read, Write};
 // use std::net::{TcpListener, TcpStream};
 
+
+use std::sync::{Arc, RwLock};
+use std::collections::{HashMap, HashSet};
+
+use tokio::sync::mpsc; // Multi Producer Single Consumer
+//
+// struct Client {
+//     sender: mpsc::Sender<Bytes>
+// }
+//
+#[derive(Default)]
+struct BrokerState {
+    subscriptions: HashMap<String, HashSet<String>>, // topic -> client_id
+    clients: HashMap<String, mpsc::Sender<Vec<u8>>>, // client_id -> Client (Mpsc sender)
+}
+
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+
+
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,13 +57,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     
     let listener = tokio::net::TcpListener::bind("0.0.0.0:1883").await?;
     println!("MQTT Sock Started");
-
+    
+    let state = Arc::new(RwLock::new(BrokerState::default()));
     loop {
         let (mut stream, addr) = listener.accept().await?;
         println!("Client Connected: {}", addr);
-
+        let state_clone = state.clone(); // Because of Arc share crap can't just pass ref so we
+                                         // clone pointer.
         tokio::spawn(async move {
-            handle_client(&mut stream).await;
+            handle_client(stream, state_clone).await;
         });
     }
     //
@@ -83,34 +104,59 @@ fn extract_remaining_length(buffer: &[u8]) -> Result<(u32, usize), &'static str>
     Err("My Error")
 }
 
-async fn handle_ping(stream: &mut tokio::net::TcpStream){
-    let pingresp = [0xD0, 0x00];
-    match stream.write_all(&pingresp).await{
-        Ok(()) => println!("Sent Ping Resp"),
-        Err(e) => eprintln!("Failed sending pingresp: {}", e),
-    };
-
+async fn handle_ping(tx: &mpsc::Sender<Vec<u8>>) {
+    let pingresp = vec![0xD0, 0x00];
+    if let Err(e) = tx.send(pingresp).await {
+        eprintln!("Failed sending pingresp via channel: {}", e);
+    }
 }
 
-async fn handle_connect(stream: &mut tokio::net::TcpStream){
-    let connack = [0x20, 0x02, 0x00, 0x00]; 
+fn parse_connect_client_id(buffer: &[u8]) -> Option<String> {
+    let (_, data_start) = extract_remaining_length(buffer).ok()?;
+    let mut pos = data_start;
+    // Skip protocol name
+    let proto_len = ((buffer[pos] as usize) << 8) | (buffer[pos + 1] as usize);
+    pos += 2 + proto_len;
+    // Skip protocol level (1) + connect flags (1) + keep alive (2)
+    pos += 4;
+    // Read client ID
+    let client_id_len = ((buffer[pos] as usize) << 8) | (buffer[pos + 1] as usize);
+    pos += 2;
+    
+    let client_id_bytes = &buffer[pos..pos + client_id_len];
+    std::str::from_utf8(client_id_bytes).ok().map(|s| s.to_string())
+}
+
+async fn handle_connect(buffer: &[u8], state: &Arc<RwLock<BrokerState>>, tx: mpsc::Sender<Vec<u8>>){
+    let connack = vec![0x20, 0x02, 0x00, 0x00]; 
+    let client_id = parse_connect_client_id(buffer).unwrap();
+    println!("{:?}", client_id);
+    
+    {
+        //let mut state = state.write(); // Aquire write lock from RwLock
+        let mut state = state.write().unwrap();
+        state.clients.insert(client_id.clone(), tx.clone());
+    }
+
+    if let Err(e) = tx.send(connack).await {
+        eprintln!("Failed sending connack via channel: {}", e);
+    }
     // Byte 0: packet type (2) and flags
     // Byte 1: Remaining Length  2 bytes (0x02)
     // Byte 2: Ack Flags (Not implemeted)
     // Byte 3: Return Code (0 for success)
-    match stream.write_all(&connack).await {
-        Ok(()) => println!("Sent ConnAck"),
-        Err(e) => eprintln!("Failed sending connack: {}", e),
-    };
+    
+    // match stream.write_all(&connack).await {
+    //     Ok(()) => println!("Sent ConnAck: {:?}", client_id),
+    //     Err(e) => eprintln!("Failed sending connack: {}", e),
+    // };
 
 }
 
-async fn handle_subscribe(stream: &mut tokio::net::TcpStream, num_topics: u8){
-    let suback = [0x90, (0x02 + num_topics), 0x00, 0x00, 0x00];
-
-    match stream.write_all(&suback).await {
-        Ok(()) => println!("Sent SubAck"),
-        Err(e) => eprintln!("Failed sending suback: {}", e),
+async fn handle_subscribe(tx: &mpsc::Sender<Vec<u8>>, num_topics: u8) {
+    let suback = vec![0x90, (0x02 + num_topics), 0x00, 0x00, 0x00];
+    if let Err(e) = tx.send(suback).await {
+        eprintln!("Failed sending suback via channel: {}", e);
     }
 }
 
@@ -147,22 +193,35 @@ async fn handle_publish(buffer: &[u8]){
 
 }
 
-async fn handle_client(stream: &mut tokio::net::TcpStream) {
+async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<BrokerState>>){
     println!("Handling Client");
+    let (mut rx_socket, mut tx_socket) = stream.into_split();
+    
+    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+
+    tokio::spawn(async move {
+        while let Some(msg) = rx.recv().await {
+            println!("Send Message: {:?}", msg);
+            if let Err(e) = tx_socket.write_all(&msg).await {
+                eprintln!("Failed to write sock: {}", e);
+                break;
+            }
+        }
+    });
 
     let mut buffer = [0; 1024];
     loop {
-        match stream.read(&mut buffer).await {
+        match rx_socket.read(&mut buffer).await {
             Ok(n) if n > 0 => {
                 println!("Recieved {} bytes", n);
                 let packet_type = PacketType::from_u8(buffer[0] >> 4);
                 if let Some(packet_type) = packet_type {
                     println!("Packet Type: {:?}", packet_type);
                     match packet_type {
-                        PacketType::Connect => handle_connect(stream).await,
+                        PacketType::Connect => handle_connect(&buffer, &state, tx.clone()).await,
                         PacketType::Publish => handle_publish(&buffer).await,
-                        PacketType::Subscribe => handle_subscribe(stream, 1).await,
-                        PacketType::PingReq => handle_ping(stream).await,
+                        PacketType::Subscribe => handle_subscribe(&tx, 1).await,
+                        PacketType::PingReq => handle_ping(&tx).await,
                         _ => println!("Unknown packet type"),
                     }
                 } else {

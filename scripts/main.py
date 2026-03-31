@@ -1,35 +1,58 @@
 import paho.mqtt.client as mqtt
 import time
+import threading
 
 
-# The callback for when the client receives a CONNACK response from the server.
-def on_connect(client, userdata, flags, reason_code, properties):
-    print(f"Connected with result code {reason_code}")
-    # Subscribing in on_connect() means that if we lose the connection and
-    # reconnect then subscriptions will be renewed.
-    client.subscribe("$SYS/#")
+NUM_CLIENTS = 10
+PUBLISH_INTERVAL = 1
 
 
-# The callback for when a PUBLISH message is received from the server.
-def on_message(client, userdata, msg):
-    print(msg.topic + " " + str(msg.payload))
+def create_client(client_id: int):
+    mqttc = mqtt.Client(
+        mqtt.CallbackAPIVersion.VERSION2, client_id=f"test-client-{client_id}"
+    )
+
+    def on_connect(client, userdata, flags, reason_code, properties):
+        print(f"Client {client_id}: Connected with result code {reason_code}")
+
+    mqttc.on_connect = on_connect
+    mqttc.connect("localhost", 1883, 60)
+    mqttc.loop_start()
+    return mqttc
+
+
+def publish_loop(client_id: int, mqttc):
+    topic = f"test/client{client_id}"
+    count = 0
+    while True:
+        payload = f"client-{client_id}-msg-{count}"
+        mqttc.publish(topic, payload)
+        print(f"Client {client_id}: published to {topic}: {payload}")
+        count += 1
+        time.sleep(PUBLISH_INTERVAL)
 
 
 def main():
-    mqttc = mqtt.Client(mqtt.CallbackAPIVersion.VERSION2)
-    mqttc.on_connect = on_connect
-    mqttc.on_message = on_message
+    clients = []
+    threads = []
 
-    mqttc.connect("localhost", 1883, 60)
-    print("Starting MQTT Client")
-    mqttc.loop_start()
+    print(f"Starting {NUM_CLIENTS} clients...")
+    for i in range(NUM_CLIENTS):
+        mqttc = create_client(i)
+        clients.append(mqttc)
 
-    while True:
-        print("Publishing Test Payload")
-        mqttc.publish("test/test", "hello world!")
-        time.sleep(3)
+        t = threading.Thread(target=publish_loop, args=(i, mqttc))
+        t.daemon = True
+        t.start()
+        threads.append(t)
 
-    print("Hello from scripts!")
+    print(f"All {NUM_CLIENTS} clients running. Press Ctrl+C to stop.")
+
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\nStopping clients...")
 
 
 if __name__ == "__main__":
