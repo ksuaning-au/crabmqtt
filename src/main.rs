@@ -346,7 +346,6 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
             }
         }
     });
-    
 
     /*
      * 1. Data Loads into Buffer
@@ -359,7 +358,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
     let mut buffer = [0; 1024];
     // Need a cursor so when buffer has more than one packet inside we don't just process the first
     // one and throw away the rest.
-    
+
     // Cursor inidcates where socket should begin writing (cursor is where any remaining data from
     // last packet ends)
 
@@ -372,11 +371,11 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
 
                 let mut pos = 0;
                 while pos < cursor + n {
-                    
-                    let (payload_size, data_start_index) = match extract_remaining_length(&buffer[pos..]).unwrap();
+                    let (payload_size, data_start_index) =
+                        extract_remaining_length(&buffer[pos..]).unwrap();
 
                     let packet_end = pos + data_start_index + payload_size as usize;
-                    
+
                     // If end of the packet is bigger than the curosr (where buffer starts and th
                     // number of bytes we have recieved) break;
                     if packet_end > cursor + n {
@@ -405,7 +404,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
 
                     pos = packet_end;
                 }
-                
+
                 // After we have dealt with all the packets in buffer
                 // Any remmaining bytes we need to throw into next buffer.
                 let remaining = n - pos;
@@ -414,7 +413,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
                     // So copy_within(5..10, 0) copies items 5-10 to 0-5
                     buffer.copy_within(pos..pos + remaining, 0);
                 }
-                cursor = remaining; 
+                cursor = remaining;
             }
             Ok(_) => {
                 println!("Client disconected.");

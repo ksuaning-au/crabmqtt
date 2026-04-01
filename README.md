@@ -1,4 +1,4 @@
-# Crab MQTT
+# Crab MQTT Broker
 
 I've been meaning to teach myself rust for a while it is the project I am using to do that. 
 
@@ -15,4 +15,20 @@ You can subscribe to topics and you will recieve messages (wildcards not impleme
 You can publish to topics.
 
 Ping and ping response working so client can stay alive.
+
+
+## Benchmark Results
+
+Results from benchmark.py
+
+| Metric | Value |
+|--------|-------|
+| Time Taken | 4.53 seconds |
+| Total Published | 10000 |
+| Expected to Receive | 50000 |
+| Actually Received | 50000 |
+| Connection/Pub Failures | 0 |
+| Lost Packets | 0 (0.00%) ✅ |
+| Overall Throughput | 13231.23 messages/sec |
+
 
