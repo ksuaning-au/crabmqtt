@@ -28,9 +28,8 @@ use num_traits::FromPrimitive;
 // use std::io::{Read, Write};
 // use std::net::{TcpListener, TcpStream};
 
-
-use std::sync::{Arc, RwLock};
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, RwLock};
 
 use tokio::sync::mpsc; // Multi Producer Single Consumer
 //
@@ -46,24 +45,21 @@ struct BrokerState {
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
-
-
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("Hello, world!");
 
     // let listener = TcpListener::bind("0.0.0.0:1883")?;
-    
+
     let listener = tokio::net::TcpListener::bind("0.0.0.0:1883").await?;
     println!("MQTT Sock Started");
-    
+
     let state = Arc::new(RwLock::new(BrokerState::default()));
     loop {
         let (mut stream, addr) = listener.accept().await?;
         println!("Client Connected: {}", addr);
         let state_clone = state.clone(); // Because of Arc share crap can't just pass ref so we
-                                         // clone pointer.
+        // clone pointer.
         tokio::spawn(async move {
             handle_client(stream, state_clone).await;
         });
@@ -90,12 +86,12 @@ fn extract_remaining_length(buffer: &[u8]) -> Result<(u32, usize), &'static str>
     let mut multiplier: u32 = 1;
     let mut bytes_read = 0;
 
-    for &byte in length_section{
+    for &byte in length_section {
         bytes_read += 1;
         // The 8th bit is used to indicate if length keeps going.
         payload_length += ((byte & 127) as u32) * multiplier;
-        
-        if(byte & 128) == 0{
+
+        if (byte & 128) == 0 {
             let data_start_index = ((1 + bytes_read) as usize);
             return Ok((payload_length, data_start_index));
         }
@@ -122,16 +118,22 @@ fn parse_connect_client_id(buffer: &[u8]) -> Option<String> {
     // Read client ID
     let client_id_len = ((buffer[pos] as usize) << 8) | (buffer[pos + 1] as usize);
     pos += 2;
-    
+
     let client_id_bytes = &buffer[pos..pos + client_id_len];
-    std::str::from_utf8(client_id_bytes).ok().map(|s| s.to_string())
+    std::str::from_utf8(client_id_bytes)
+        .ok()
+        .map(|s| s.to_string())
 }
 
-async fn handle_connect(buffer: &[u8], state: &Arc<RwLock<BrokerState>>, tx: mpsc::Sender<Vec<u8>>) -> String{
-    let connack = vec![0x20, 0x02, 0x00, 0x00]; 
+async fn handle_connect(
+    buffer: &[u8],
+    state: &Arc<RwLock<BrokerState>>,
+    tx: mpsc::Sender<Vec<u8>>,
+) -> String {
+    let connack = vec![0x20, 0x02, 0x00, 0x00];
     let client_id = parse_connect_client_id(buffer).unwrap();
     println!("{:?}", client_id);
-    
+
     {
         //let mut state = state.write(); // Aquire write lock from RwLock
         let mut state = state.write().unwrap();
@@ -148,12 +150,11 @@ async fn handle_connect(buffer: &[u8], state: &Arc<RwLock<BrokerState>>, tx: mps
     // Byte 1: Remaining Length  2 bytes (0x02)
     // Byte 2: Ack Flags (Not implemeted)
     // Byte 3: Return Code (0 for success)
-    
+
     // match stream.write_all(&connack).await {
     //     Ok(()) => println!("Sent ConnAck: {:?}", client_id),
     //     Err(e) => eprintln!("Failed sending connack: {}", e),
     // };
-
 }
 
 // fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
@@ -174,7 +175,7 @@ async fn handle_connect(buffer: &[u8], state: &Arc<RwLock<BrokerState>>, tx: mps
 
 //     while pos < packet_end {
 //         if pos + 2 > packet_end {
-//             break; 
+//             break;
 //         }
 
 //         let topic_len = (((buffer[pos] as u16) << 8) | (buffer[pos + 1] as u16)) as usize;
@@ -188,18 +189,17 @@ async fn handle_connect(buffer: &[u8], state: &Arc<RwLock<BrokerState>>, tx: mps
 //             pos += 1;
 //             topics.push((topic_str.to_string(), qos));
 //         } else {
-//             break; 
+//             break;
 //         }
 //     }
 //     return Some((packet_id, topics));
 // }
 
-
 fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
     let mut pos = 1;
     let mut multiplier = 1;
     let mut remaining_length = 0;
-    
+
     while pos < buffer.len() {
         let byte = buffer[pos];
         remaining_length += ((byte & 127) as usize) * multiplier;
@@ -209,22 +209,28 @@ fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
         }
         multiplier *= 128;
     }
-    
+
     let packet_end = pos + remaining_length;
     if packet_end > buffer.len() {
-        return None; 
+        return None;
     }
-    if pos + 2 > packet_end { return None; }
+    if pos + 2 > packet_end {
+        return None;
+    }
     let packet_id = ((buffer[pos] as u16) << 8) | (buffer[pos + 1] as u16);
     pos += 2;
     let mut topics = Vec::new();
 
     while pos < packet_end {
-        if pos + 2 > packet_end { break; }
-        
+        if pos + 2 > packet_end {
+            break;
+        }
+
         let topic_len = (((buffer[pos] as u16) << 8) | (buffer[pos + 1] as u16)) as usize;
         pos += 2;
-        if pos + topic_len + 1 > packet_end { break; }
+        if pos + topic_len + 1 > packet_end {
+            break;
+        }
         let topic_bytes = &buffer[pos..pos + topic_len];
         pos += topic_len;
         if let Ok(topic_str) = std::str::from_utf8(topic_bytes) {
@@ -232,14 +238,19 @@ fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
             pos += 1;
             topics.push((topic_str.to_string(), qos));
         } else {
-            break; 
+            break;
         }
     }
-    
+
     return Some((packet_id, topics));
 }
 
-async fn handle_subscribe(buffer: &[u8], client_id: &str, tx: &mpsc::Sender<Vec<u8>>, state: &Arc<RwLock<BrokerState>>) {
+async fn handle_subscribe(
+    buffer: &[u8],
+    client_id: &str,
+    tx: &mpsc::Sender<Vec<u8>>,
+    state: &Arc<RwLock<BrokerState>>,
+) {
     let (packet_id, topics_vec) = match parse_subscribe_topics(buffer) {
         Some(result) => result,
         None => {
@@ -253,7 +264,10 @@ async fn handle_subscribe(buffer: &[u8], client_id: &str, tx: &mpsc::Sender<Vec<
         for (topic, qos) in &topics_vec {
             // Get the HashSet for this topic, or create an empty one if it doesn't exist
             println!("Client Id: {} | Sub to: {}", client_id, topic);
-            let subscribers = state_write.subscriptions.entry(topic.clone()).or_insert_with(HashSet::new);
+            let subscribers = state_write
+                .subscriptions
+                .entry(topic.clone())
+                .or_insert_with(HashSet::new);
             subscribers.insert(client_id.to_string());
         }
     }
@@ -261,11 +275,10 @@ async fn handle_subscribe(buffer: &[u8], client_id: &str, tx: &mpsc::Sender<Vec<
     let _ = tx.send(suback).await;
 }
 
-
-async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<BrokerState>>){
+async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<BrokerState>>) {
     // The payload size is variable len to support large payloads so we need to
     // loop through it to find where data starts and payload size ends.
-    let (payload_size, start_index) = match extract_remaining_length(&buffer){
+    let (payload_size, start_index) = match extract_remaining_length(&buffer) {
         Ok((payload_size, start_index)) => (payload_size, start_index),
         Err(e) => {
             eprintln!("Invalid Packet: {}", e);
@@ -284,7 +297,6 @@ async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<BrokerState>>){
         Ok(text) => text.to_string(),
         Err(_) => return,
     };
-
 
     current_pos += topic_len;
     let qos = (buffer[0] & 0x06) >> 1;
@@ -316,12 +328,13 @@ async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<BrokerState>>){
     }
 }
 
-async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<BrokerState>>){
+async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<BrokerState>>) {
     println!("Handling Client");
     let mut current_client_id: Option<String> = None; // Gets set by CONNECT
 
+    // Split sockets into halves so we can give ownership to bits that need it.
     let (mut rx_socket, mut tx_socket) = stream.into_split();
-    
+
     let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
 
     tokio::spawn(async move {
@@ -333,45 +346,84 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
             }
         }
     });
+    
 
-    // ISSUE HERE: BUFFER CAN CONTAIN MORE THAN ONE MESSAGE BUT WE ARE ONLY PROCESSING ONE
-    let mut buffer = [0; 1024]; // Dropping this size increases reliablity for small packets as we are just throwing away less.
+    /*
+     * 1. Data Loads into Buffer
+     * 2. We start reading buffer from cursor 0
+     * 3. Extract packet and hnadle it.
+     * 4. Loop until all packets in current buffer processed.
+     * 5. Copy remaining bytes to start of buffer.
+     * 6. Set cursor so socket reads new data into buffer after remaing bytes
+     */
+    let mut buffer = [0; 1024];
+    // Need a cursor so when buffer has more than one packet inside we don't just process the first
+    // one and throw away the rest.
+    
+    // Cursor inidcates where socket should begin writing (cursor is where any remaining data from
+    // last packet ends)
+
+    // So if we have 5 bytes of old packet the sock starts writing into buffer at index 5.
+    let mut cursor = 0;
     loop {
-        match rx_socket.read(&mut buffer).await {
+        match rx_socket.read(&mut buffer[cursor..]).await {
             Ok(n) if n > 0 => {
-                println!("Recieved {} bytes", n);
-                
-                let packet_type = PacketType::from_u8(buffer[0] >> 4);
-                if let Some(packet_type) = packet_type {
-                    println!("Packet Type: {:?}", packet_type);
-                    match packet_type {
-                        PacketType::Connect => {
-                            let id = handle_connect(&buffer, &state, tx.clone()).await;
-                            current_client_id = Some(id);
-                        },
-                        PacketType::Publish => handle_publish(&buffer, &state).await,
-                        PacketType::Subscribe => {
-                             if let Some(ref cid) = current_client_id {
-                                handle_subscribe(&buffer, cid, &tx, &state).await;
-                            } else {
-                                eprintln!("Error: Received Subscribe before Connect");
-                            }
-                        },
-                        PacketType::PingReq => handle_ping(&tx).await,
-                        _ => println!("Unknown packet type"),
+                println!("Received {} bytes", cursor + n);
+
+                let mut pos = 0;
+                while pos < cursor + n {
+                    
+                    let (payload_size, data_start_index) = match extract_remaining_length(&buffer[pos..]).unwrap();
+
+                    let packet_end = pos + data_start_index + payload_size as usize;
+                    
+                    // If end of the packet is bigger than the curosr (where buffer starts and th
+                    // number of bytes we have recieved) break;
+                    if packet_end > cursor + n {
+                        break;
                     }
-                } else {
-                    println!("Unexpected packet type!");
+
+                    let packet = &buffer[pos..packet_end];
+
+                    let packet_type = PacketType::from_u8(packet[0] >> 4);
+                    if let Some(packet_type) = packet_type {
+                        match packet_type {
+                            PacketType::Connect => {
+                                let id = handle_connect(packet, &state, tx.clone()).await;
+                                current_client_id = Some(id);
+                            }
+                            PacketType::Publish => handle_publish(packet, &state).await,
+                            PacketType::Subscribe => {
+                                if let Some(ref cid) = current_client_id {
+                                    handle_subscribe(packet, cid, &tx, &state).await;
+                                }
+                            }
+                            PacketType::PingReq => handle_ping(&tx).await,
+                            _ => println!("Unknown packet type"),
+                        }
+                    }
+
+                    pos = packet_end;
                 }
+                
+                // After we have dealt with all the packets in buffer
+                // Any remmaining bytes we need to throw into next buffer.
+                let remaining = n - pos;
+                if remaining > 0 {
+                    // This function copies (start_src..end_src, start_dest)
+                    // So copy_within(5..10, 0) copies items 5-10 to 0-5
+                    buffer.copy_within(pos..pos + remaining, 0);
+                }
+                cursor = remaining; 
             }
             Ok(_) => {
                 println!("Client disconected.");
                 break;
-            },
+            }
             Err(e) => {
                 eprintln!("Error Reading from sock: {}", e);
                 break;
-            },
+            }
         }
     }
 }
