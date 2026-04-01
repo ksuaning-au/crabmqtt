@@ -317,14 +317,16 @@ async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<BrokerState>>) {
         if let Some(subscribers) = state_read.subscriptions.get(&topic_str) {
             for client_id in subscribers {
                 if let Some(tx) = state_read.clients.get(client_id) {
-                    println!("Pushing Client ID to target Channels: {}", client_id);
+                    // println!("Pushing Client ID to target Channels: {}", client_id);
                     target_channels.push(tx.clone()); // Just clone the sender!
                 }
             }
         }
     }
     for tx in target_channels {
-        tx.send(packet_bytes.to_vec()).await; // Safe!
+        if let Err(e) = tx.send(packet_bytes.to_vec()).await {
+            eprintln!("Failed to forward to subscriber");
+        }
     }
 }
 
@@ -339,7 +341,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {
-            println!("Send Message: {:?}", msg);
+            // println!("Send Message: {:?}", msg);
             if let Err(e) = tx_socket.write_all(&msg).await {
                 eprintln!("Failed to write sock: {}", e);
                 break;
@@ -372,12 +374,21 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
                 let mut pos = 0;
                 while pos < cursor + n {
                     let (payload_size, data_start_index) =
-                        extract_remaining_length(&buffer[pos..]).unwrap();
+                        match extract_remaining_length(&buffer[pos..]) {
+                            Ok(result) => result,
+                            Err(e) => {
+                                eprintln!("Invalid packet: {}", e);
+                                break;
+                            }
+                        };
 
                     let packet_end = pos + data_start_index + payload_size as usize;
 
                     // If end of the packet is bigger than the curosr (where buffer starts and th
                     // number of bytes we have recieved) break;
+                    //
+                    // NOTE: This is actually valid. If we dont get all packet but do get length we
+                    // expect end of packet to be out of bounds....
                     if packet_end > cursor + n {
                         break;
                     }
@@ -407,7 +418,7 @@ async fn handle_client(mut stream: tokio::net::TcpStream, state: Arc<RwLock<Brok
 
                 // After we have dealt with all the packets in buffer
                 // Any remmaining bytes we need to throw into next buffer.
-                let remaining = n - pos;
+                let remaining = if pos > n { 0 } else { n - pos };
                 if remaining > 0 {
                     // This function copies (start_src..end_src, start_dest)
                     // So copy_within(5..10, 0) copies items 5-10 to 0-5
