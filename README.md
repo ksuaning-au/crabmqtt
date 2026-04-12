@@ -6,6 +6,7 @@ There is close to zero chance I actually implement the entire 137 pages of the s
 
 I will however probably build this out as a working base MQTT implementation.
 
+Targeting MQTTv3.1.1 for now.
 
 ## What Works
 You can connect (ALL flags are ignored currently) and recieve a CONNACK.
