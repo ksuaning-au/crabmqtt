@@ -120,9 +120,22 @@ fn parse_connect_client_id(buffer: &[u8]) -> Option<String> {
     pos += 2;
 
     let client_id_bytes = &buffer[pos..pos + client_id_len];
-    std::str::from_utf8(client_id_bytes)
+
+    return std::str::from_utf8(client_id_bytes)
         .ok()
-        .map(|s| s.to_string())
+        .map(|s| s.to_string());
+}
+
+fn parse_connect_protocol(buffer: &[u8]) -> Option<String> {
+    // Had extract client ID first this does a bunch of duplicated work.. TODO: Clean up
+    let (_, data_start) = extract_remaining_length(buffer).ok()?;
+    let mut pos = data_start;
+
+    let proto_len = ((buffer[pos] as usize) << 8) | (buffer[pos + 1] as usize);
+    pos += 2;
+    let proto_bytes = &buffer[pos..pos + proto_len];
+
+    return std::str::from_utf8(proto_bytes).ok().map(|s| s.to_string());
 }
 
 async fn handle_connect(
@@ -130,17 +143,25 @@ async fn handle_connect(
     state: &Arc<RwLock<BrokerState>>,
     tx: mpsc::Sender<Vec<u8>>,
 ) -> String {
-    let connack = vec![0x20, 0x02, 0x00, 0x00];
+    let mut result_code = 0x00;
+
+    let protocol = parse_connect_protocol(buffer).unwrap();
+    println!("{:?}", protocol);
+    // Tidy this regection up;
+    if protocol != "MQTT" {
+        result_code = 0x01;
+    }
     let client_id = parse_connect_client_id(buffer).unwrap();
     println!("{:?}", client_id);
 
-    {
+    if result_code == 0x00 {
         //let mut state = state.write(); // Aquire write lock from RwLock
         let mut state = state.write().unwrap();
         // Add client Id and Sender to broker state.
         state.clients.insert(client_id.clone(), tx.clone());
     }
 
+    let connack = vec![0x20, 0x02, 0x00, result_code];
     if let Err(e) = tx.send(connack).await {
         eprintln!("Failed sending connack via channel: {}", e);
     }
