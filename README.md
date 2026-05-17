@@ -29,16 +29,9 @@ Time: 9.53s  Sent: 500000  Received: 5000000  Throughput: 524874 msg/s
 
 Pretty impressed by 500,000 messages per second. Obviously will depend on PC but still, this benchmark was run on an old laptop.
 
-Found that you can add cargo aliases so you can do cool stuff like:
+Found that you can add cargo aliases so you can do cool stuff like `cargo benchmark`.
 
-```
-```
-`cargo benchmark`
-
-Which aliases to `cargo run --bin benchmark`
-
-```
-```
+Which aliases to `cargo run --bin benchmark`.
 ```
 
 ```
