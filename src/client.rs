@@ -14,7 +14,7 @@ pub async fn handle_client_read(
     n: usize,
     buffer: &mut [u8],
     state: &Arc<RwLock<state::BrokerState>>,
-    tx: &mpsc::Sender<Vec<u8>>,
+    tx: &mpsc::Sender<Arc<[u8]>>,
     current_client_id: &mut Option<String>,
 ) {
     //println!("Received {} bytes", *cursor + n);
@@ -51,7 +51,17 @@ pub async fn handle_client_read(
                     let id = connect::handle_connect(packet, &state, tx.clone()).await;
                     *current_client_id = Some(id);
                 }
-                packet::PacketType::Publish => publish::handle_publish(packet, state).await,
+                packet::PacketType::Publish => {
+                    let packet_data: Arc<[u8]> = Arc::from(&buffer[pos..packet_end]);
+                    let state = state.clone();
+                    tokio::spawn(async move {
+                        publish::handle_publish(packet_data, &state).await;
+                    });
+                    //tokio::spawn(async move {
+                    //publish::handle_publish(packet_data, &state).await;
+                    //});
+                    //publish::handle_publish(packet, state).await,
+                }
                 packet::PacketType::Subscribe => {
                     if let Some(cid) = current_client_id {
                         subscribe::handle_subscribe(packet, cid, tx, state).await;
@@ -67,7 +77,9 @@ pub async fn handle_client_read(
 
     // After we have dealt with all the packets in buffer
     // Any remmaining bytes we need to throw into next buffer.
-    let remaining = if pos > n { 0 } else { n - pos };
+    //let remaining = if pos > n { 0 } else { n - pos };
+    let total = *cursor + n;
+    let remaining = total.saturating_sub(pos);
     if remaining > 0 {
         // This function copies (start_src..end_src, start_dest)
         // So copy_within(5..10, 0) copies items 5-10 to 0-5
@@ -83,7 +95,7 @@ pub async fn handle_client(stream: tokio::net::TcpStream, state: Arc<RwLock<stat
     // Split sockets into halves so we can give ownership to bits that need it.
     let (mut rx_socket, mut tx_socket) = stream.into_split();
 
-    let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
+    let (tx, mut rx) = mpsc::channel::<Arc<[u8]>>(16384);
 
     tokio::spawn(async move {
         while let Some(msg) = rx.recv().await {

@@ -56,7 +56,7 @@ fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
 pub async fn handle_subscribe(
     buffer: &[u8],
     client_id: &str,
-    tx: &mpsc::Sender<Vec<u8>>,
+    tx: &mpsc::Sender<Arc<[u8]>>,
     state: &Arc<RwLock<state::BrokerState>>,
 ) {
     let (packet_id, topics_vec) = match parse_subscribe_topics(buffer) {
@@ -80,5 +80,5 @@ pub async fn handle_subscribe(
         }
     }
     let suback = vec![0x90, (0x02 + topics_vec.len() as u8), 0x00, 0x00, 0x00]; // Simplified SubAck
-    let _ = tx.send(suback).await;
+    let _ = tx.send(suback.into()).await;
 }

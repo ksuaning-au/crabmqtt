@@ -1,9 +1,9 @@
-use std::sync::{Arc, RwLock};
-
 use crate::packet;
 use crate::state;
 
-pub async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<state::BrokerState>>) {
+use std::sync::{Arc, RwLock};
+
+pub async fn handle_publish(buffer: Arc<[u8]>, state: &Arc<RwLock<state::BrokerState>>) {
     // The payload size is variable len to support large payloads so we need to
     // loop through it to find where data starts and payload size ends.
     let (payload_size, start_index) = match packet::extract_remaining_length(&buffer) {
@@ -14,7 +14,7 @@ pub async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<state::BrokerState
         }
     };
     let packet_end = start_index + payload_size as usize;
-    let packet_bytes = &buffer[..packet_end]; // The exact bytes to forward
+    //let packet_bytes = &buffer[..packet_end]; // The exact bytes to forward
 
     let mut current_pos = start_index;
     // Topci name len maxes out a 2 bytes (not variable like payload)
@@ -31,15 +31,31 @@ pub async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<state::BrokerState
     if qos > 0 {
         current_pos += 2; // Skip the 2-byte Packet ID
     }
-    let payload_bytes = &buffer[current_pos..];
-    match std::str::from_utf8(payload_bytes) {
+    //let payload_bytes = &buffer[current_pos..];
+    /* match std::str::from_utf8(payload_bytes) {
         Ok(text) => println!("Payload: {}", text),
         Err(e) => println!("Payload is binary or invalid UTF-8: {}", e),
     }
-
+    */
     //println!("Publishing to Topic: {}", topic_str);
     // Get Subscribers
-    let mut target_channels = Vec::new();
+    let subscriber_ids: Vec<String> = {
+        let subs = state.read().unwrap();
+        subs.subscriptions
+            .get(&topic_str)
+            .map(|s| s.iter().cloned().collect())
+            .unwrap_or_default()
+    };
+    let mut target_channels = Vec::with_capacity(subscriber_ids.len());
+    {
+        let clients = state.read().unwrap();
+        for id in &subscriber_ids {
+            if let Some(tx) = clients.clients.get(id) {
+                target_channels.push(tx.clone());
+            }
+        }
+    }
+    /*let mut target_channels = Vec::new();
     {
         let state_read = state.read().unwrap();
         if let Some(subscribers) = state_read.subscriptions.get(&topic_str) {
@@ -51,9 +67,27 @@ pub async fn handle_publish(buffer: &[u8], state: &Arc<RwLock<state::BrokerState
             }
         }
     }
-    for tx in target_channels {
+    */
+    let packet_data: Arc<[u8]> = buffer;
+
+    tokio::spawn(async move {
+        for tx in target_channels {
+            let _ = tx.send(packet_data.clone()).await;
+        }
+    });
+
+    /* for tx in target_channels {
+        let data = packet_data.clone();
+        tokio::spawn(async move {
+            let _ = tx.send(data.into()).await;
+        });
+    }
+    */
+
+    /*for tx in target_channels {
         if let Err(e) = tx.send(packet_bytes.to_vec()).await {
             eprintln!("Failed to forward to subscriber");
         }
     }
+    */
 }

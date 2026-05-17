@@ -38,7 +38,7 @@ fn parse_connect_protocol(buffer: &[u8]) -> Option<String> {
 pub async fn handle_connect(
     buffer: &[u8],
     state: &Arc<RwLock<state::BrokerState>>,
-    tx: mpsc::Sender<Vec<u8>>,
+    tx: mpsc::Sender<Arc<[u8]>>,
 ) -> String {
     let mut result_code = 0x00;
 
@@ -59,7 +59,7 @@ pub async fn handle_connect(
     }
 
     let connack = vec![0x20, 0x02, 0x00, result_code];
-    if let Err(e) = tx.send(connack).await {
+    if let Err(e) = tx.send(connack.into()).await {
         eprintln!("Failed sending connack via channel: {}", e);
     }
 
