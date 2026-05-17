@@ -1,0 +1,2 @@
+[alias]
+benchmark = "run --bin benchmark --release"

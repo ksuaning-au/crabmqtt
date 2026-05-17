@@ -20,16 +20,7 @@ Ping and ping response working so client can stay alive.
 
 ## Benchmark Results
 
-Results from benchmark.py
-
-| Metric | Value |
-|--------|-------|
-| Time Taken | 4.53 seconds |
-| Total Published | 10000 |
-| Expected to Receive | 50000 |
-| Actually Received | 50000 |
-| Connection/Pub Failures | 0 |
-| Lost Packets | 0 (0.00%) ✅ |
-| Overall Throughput | 13231.23 messages/sec |
+Python benchmark was huge bottleneck - new rust benchmark.rs:
+Time: 9.53s  Sent: 500000  Received: 5000000  Throughput: 524874 msg/s
 
 
