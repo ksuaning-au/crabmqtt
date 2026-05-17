@@ -72,7 +72,7 @@ def publisher_task(client_id):
 
         try:
             info = client.publish(TOPIC, payload, qos=0)
-            info.wait_for_publish()  # Block until message is sent across the socket
+            #info.wait_for_publish()  # Block until message is sent across the socket
             with lock:
                 total_published += 1
         except Exception as e:
@@ -80,7 +80,7 @@ def publisher_task(client_id):
                 failures += 1
             print(f"Publish failed: {e}")
             break
-
+    #client.loop_write()
     client.loop_stop()
     client.disconnect()
 

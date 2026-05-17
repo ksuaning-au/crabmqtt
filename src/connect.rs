@@ -1,6 +1,6 @@
 use crate::packet;
 use crate::state;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
 use tokio::sync::mpsc; // Multi Producer Single Consumer
 
@@ -37,7 +37,7 @@ fn parse_connect_protocol(buffer: &[u8]) -> Option<String> {
 
 pub async fn handle_connect(
     buffer: &[u8],
-    state: &Arc<RwLock<state::BrokerState>>,
+    state: &Arc<state::BrokerState>,
     tx: mpsc::Sender<Arc<[u8]>>,
 ) -> String {
     let mut result_code = 0x00;
@@ -52,10 +52,7 @@ pub async fn handle_connect(
     println!("{:?}", client_id);
 
     if result_code == 0x00 {
-        //let mut state = state.write(); // Aquire write lock from RwLock
-        let mut state = state.write().unwrap();
-        // Add client Id and Sender to broker state.
-        state.add_client(client_id.clone(), tx.clone());
+        state.clients.insert(client_id.clone(), tx.clone());
     }
 
     let connack = vec![0x20, 0x02, 0x00, result_code];

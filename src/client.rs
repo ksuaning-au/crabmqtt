@@ -5,7 +5,7 @@ use crate::publish;
 use crate::state;
 use crate::subscribe;
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -13,7 +13,7 @@ pub async fn handle_client_read(
     cursor: &mut usize,
     n: usize,
     buffer: &mut [u8],
-    state: &Arc<RwLock<state::BrokerState>>,
+    state: &Arc<state::BrokerState>,
     tx: &mpsc::Sender<Arc<[u8]>>,
     current_client_id: &mut Option<String>,
 ) {
@@ -53,14 +53,7 @@ pub async fn handle_client_read(
                 }
                 packet::PacketType::Publish => {
                     let packet_data: Arc<[u8]> = Arc::from(&buffer[pos..packet_end]);
-                    let state = state.clone();
-                    tokio::spawn(async move {
-                        publish::handle_publish(packet_data, &state).await;
-                    });
-                    //tokio::spawn(async move {
-                    //publish::handle_publish(packet_data, &state).await;
-                    //});
-                    //publish::handle_publish(packet, state).await,
+                    publish::handle_publish(packet_data, state).await;
                 }
                 packet::PacketType::Subscribe => {
                     if let Some(cid) = current_client_id {
@@ -88,7 +81,7 @@ pub async fn handle_client_read(
     *cursor = remaining;
 }
 
-pub async fn handle_client(stream: tokio::net::TcpStream, state: Arc<RwLock<state::BrokerState>>) {
+pub async fn handle_client(stream: tokio::net::TcpStream, state: Arc<state::BrokerState>) {
     println!("Handling Client");
     let mut current_client_id: Option<String> = None; // Gets set by CONNECT
 

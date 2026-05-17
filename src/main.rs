@@ -10,10 +10,7 @@ mod publish;
 mod state;
 mod subscribe;
 
-use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, RwLock};
-
-use tokio::sync::mpsc; // Multi Producer Single Consumer
+use std::sync::Arc;
 
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -22,7 +19,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let listener = tokio::net::TcpListener::bind("0.0.0.0:1883").await?;
     println!("MQTT Sock Started");
 
-    let state = Arc::new(RwLock::new(state::BrokerState::default()));
+    let state = Arc::new(state::BrokerState::default());
     loop {
         let (mut stream, addr) = listener.accept().await?;
         println!("Client Connected: {}", addr);

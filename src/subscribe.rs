@@ -1,6 +1,6 @@
 use crate::state;
 use std::collections::HashSet;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use tokio::sync::mpsc;
 
 fn parse_subscribe_topics(buffer: &[u8]) -> Option<(u16, Vec<(String, u8)>)> {
@@ -57,7 +57,7 @@ pub async fn handle_subscribe(
     buffer: &[u8],
     client_id: &str,
     tx: &mpsc::Sender<Arc<[u8]>>,
-    state: &Arc<RwLock<state::BrokerState>>,
+    state: &Arc<state::BrokerState>,
 ) {
     let (packet_id, topics_vec) = match parse_subscribe_topics(buffer) {
         Some(result) => result,
@@ -67,17 +67,12 @@ pub async fn handle_subscribe(
         }
     };
     // Scope it so we release write lock asap.
-    {
-        let mut state_write = state.write().unwrap();
-        for (topic, qos) in &topics_vec {
-            // Get the HashSet for this topic, or create an empty one if it doesn't exist
-            println!("Client Id: {} | Sub to: {}", client_id, topic);
-            let subscribers = state_write
-                .subscriptions
-                .entry(topic.clone())
-                .or_insert_with(HashSet::new);
-            subscribers.insert(client_id.to_string());
-        }
+    for (topic, qos) in &topics_vec {
+        state
+            .subscriptions
+            .entry(topic.clone())
+            .or_insert_with(HashSet::new)
+            .insert(client_id.to_string());
     }
     let suback = vec![0x90, (0x02 + topics_vec.len() as u8), 0x00, 0x00, 0x00]; // Simplified SubAck
     let _ = tx.send(suback.into()).await;

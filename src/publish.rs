@@ -1,9 +1,9 @@
 use crate::packet;
 use crate::state;
 
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 
-pub async fn handle_publish(buffer: Arc<[u8]>, state: &Arc<RwLock<state::BrokerState>>) {
+pub async fn handle_publish(buffer: Arc<[u8]>, state: &Arc<state::BrokerState>) {
     // The payload size is variable len to support large payloads so we need to
     // loop through it to find where data starts and payload size ends.
     let (payload_size, start_index) = match packet::extract_remaining_length(&buffer) {
@@ -39,55 +39,21 @@ pub async fn handle_publish(buffer: Arc<[u8]>, state: &Arc<RwLock<state::BrokerS
     */
     //println!("Publishing to Topic: {}", topic_str);
     // Get Subscribers
-    let subscriber_ids: Vec<String> = {
-        let subs = state.read().unwrap();
-        subs.subscriptions
-            .get(&topic_str)
-            .map(|s| s.iter().cloned().collect())
-            .unwrap_or_default()
-    };
+    let subscriber_ids: Vec<String> = state
+        .subscriptions
+        .get(&topic_str)
+        .map(|s| s.iter().cloned().collect())
+        .unwrap_or_default();
+
     let mut target_channels = Vec::with_capacity(subscriber_ids.len());
-    {
-        let clients = state.read().unwrap();
-        for id in &subscriber_ids {
-            if let Some(tx) = clients.clients.get(id) {
-                target_channels.push(tx.clone());
-            }
+    for id in &subscriber_ids {
+        if let Some(tx) = state.clients.get(id) {
+            target_channels.push(tx.value().clone());
         }
     }
-    /*let mut target_channels = Vec::new();
-    {
-        let state_read = state.read().unwrap();
-        if let Some(subscribers) = state_read.subscriptions.get(&topic_str) {
-            for client_id in subscribers {
-                if let Some(tx) = state_read.clients.get(client_id) {
-                    // println!("Pushing Client ID to target Channels: {}", client_id);
-                    target_channels.push(tx.clone()); // Just clone the sender!
-                }
-            }
-        }
-    }
-    */
     let packet_data: Arc<[u8]> = buffer;
 
-    tokio::spawn(async move {
-        for tx in target_channels {
-            let _ = tx.send(packet_data.clone()).await;
-        }
-    });
-
-    /* for tx in target_channels {
-        let data = packet_data.clone();
-        tokio::spawn(async move {
-            let _ = tx.send(data.into()).await;
-        });
+    for tx in target_channels {
+        let _ = tx.send(packet_data.clone()).await;
     }
-    */
-
-    /*for tx in target_channels {
-        if let Err(e) = tx.send(packet_bytes.to_vec()).await {
-            eprintln!("Failed to forward to subscriber");
-        }
-    }
-    */
 }
