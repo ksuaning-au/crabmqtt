@@ -10,6 +10,7 @@ const TOPIC: &str = "benchmark/test";
 const NUM_PUBLISHERS: u64 = 5;
 const NUM_SUBSCRIBERS: u64 = 10;
 const MSGS_PER_PUBLISHER: u64 = 10000;
+const PAYLOAD_LENGTH: usize = 1024;
 
 async fn create_subscribers(received: Arc<AtomicU64>, index: u64) {
     let mut opts = MqttOptions::new(&format!("bench-sub-{index}"), BROKER, PORT);
@@ -30,7 +31,14 @@ async fn create_subscribers(received: Arc<AtomicU64>, index: u64) {
     }
 }
 
-async fn create_publishers(published: Arc<AtomicU64>, index: u64) {
+fn payload(client_id: u64, msg_num: u64, length: usize) -> String {
+    // Want to test performance with large payloads..
+    let base = format!("bench-pub-{client_id}-msg-{msg_num}-");
+    let padding = length.saturating_sub(base.len());
+    format!("{}{}", base, "x".repeat(padding))
+}
+
+async fn create_publishers(payload: Arc<str>, published: Arc<AtomicU64>, index: u64) {
     let mut opts = MqttOptions::new(&format!("bench-pub-{index}"), BROKER, PORT);
     opts.set_keep_alive(std::time::Duration::from_secs(60));
     opts.set_max_packet_size(1024 * 1024, 1024 * 1024);
@@ -45,9 +53,9 @@ async fn create_publishers(published: Arc<AtomicU64>, index: u64) {
     });
 
     for j in 0..MSGS_PER_PUBLISHER {
-        let payload = format!("bench-pub-{index}-msg-{j}");
+        //let payload = payload(index, j, PAYLOAD_LENGTH);
         client
-            .publish(TOPIC, QoS::AtMostOnce, false, payload)
+            .publish(TOPIC, QoS::AtMostOnce, false, payload.as_bytes())
             .await
             .unwrap();
         published.fetch_add(1, Ordering::Relaxed);
@@ -69,10 +77,13 @@ async fn main() {
     let total_msgs = NUM_PUBLISHERS * MSGS_PER_PUBLISHER;
     let published = Arc::new(AtomicU64::new(0));
 
+    // Lets us create a payload of varying lengths to test.
+    let payload: Arc<str> = Arc::from("x".repeat(PAYLOAD_LENGTH));
     for i in 0..NUM_PUBLISHERS {
         let published = published.clone();
+        let payload = payload.clone();
         tokio::spawn(async move {
-            create_publishers(published, i).await;
+            create_publishers(payload, published, i).await;
         });
     }
 
@@ -83,7 +94,7 @@ async fn main() {
         if rcvd >= expected {
             break;
         }
-        sleep(std::time::Duration::from_millis(50)).await;
+        sleep(std::time::Duration::from_millis(1)).await;
     }
 
     let duration = start.elapsed();
